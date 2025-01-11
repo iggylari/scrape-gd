@@ -11,14 +11,7 @@ from wakepy import keep
 from GlassdoorSite import GlassdoorSite
 from DuckDbStorage import DuckDbStorage
 from ParquetStorage import ParquetStorage
-
-SITES = [
-    ("www.glassdoor.ie", "IE"),
-    ("www.glassdoor.de", "DE"),
-    ("www.glassdoor.fr", "FR"),
-    ("www.glassdoor.co.uk", "UK"),
-    ("www.glassdoor.nl", "NL")
-]
+from constants import SITES, DB_PATH
 
 
 def main() -> int:
@@ -41,7 +34,7 @@ def parse_sites(sites: list[tuple[str, str]], n_pages: int = 0) -> int:
         driver = create_webdriver()
         site = GlassdoorSite(driver, domain)
 
-        storage = DuckDbStorage('glassdoor.duckdb')
+        storage = DuckDbStorage(DB_PATH)
         existing_ids = storage.get_not_empty_ids(country)
 
         date = datetime.now()
