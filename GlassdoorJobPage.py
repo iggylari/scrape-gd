@@ -27,8 +27,6 @@ class GlassdoorJobPage:
             'salary_range': None,
             'salary_range_est_type': None,
             'company_name': None,
-            'company_id': None,
-            'company_link': None,
             'company_rating': None,
             'job_description': None,
             'job_description_html': None,
@@ -54,6 +52,8 @@ class GlassdoorJobPage:
             "work_life_balance_rating": None,
             "trust_reviews_html": None,
             "benefit_rating": None,
+            'company_id': None,
+            'company_link': None,
         }
 
         job_element = self.__job_element
