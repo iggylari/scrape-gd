@@ -72,9 +72,12 @@ def parse_site(site: GlassdoorSite, country: str, existing_ids: set[int], date: 
         input("Check for captcha and resume")
         job_pages = site.parse_all_jobs(n_pages)
 
+    processed_ids = set()   # To avoid duplicates
     site_data = SiteData()
     try:
         for job in tqdm(job_pages, desc="Progress"):
+            if job.job_id in processed_ids:
+                continue
             if job.job_id in existing_ids:
                 site_data.active_job_ids.add(job.job_id)
                 continue
@@ -82,6 +85,8 @@ def parse_site(site: GlassdoorSite, country: str, existing_ids: set[int], date: 
             job_record = job.parse_job(country, date)
             if job_record:
                 site_data.new_jobs.append(job_record)
+                if job_record['job_description'] is not None:
+                    processed_ids.add(job.job_id)
     except Exception as e:
         site_data.error = e
     finally:
