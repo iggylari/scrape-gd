@@ -27,16 +27,11 @@ class DuckDbStorage:
 
     def mark_active(self, job_ids: list[int], country: str, date: datetime):
         with self.__connect() as ddb:
-            dataframe = DataFrame(data={
-                'id': list(job_ids)
-                #'country': [country for _ in job_ids],
-                #'datetime': [date for _ in job_ids]
-            })
+            dataframe = DataFrame(data={'id': list(job_ids)})
             ddb.register('dataframe', dataframe)
             sql = (f"INSERT INTO job_active_status (id, country, datetime) "
                    f"SELECT id, '{country}' AS country, '{date}' AS datetime "
                    f"FROM dataframe")
-            print(sql)
             ddb.execute(sql)
 
     def create_tables(self) -> None:
