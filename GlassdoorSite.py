@@ -3,7 +3,7 @@ import time
 import selenium.webdriver as webdriver
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, \
-    ElementClickInterceptedException
+    ElementClickInterceptedException, ElementNotInteractableException
 
 from GlassdoorJobPage import GlassdoorJobPage
 
@@ -43,6 +43,8 @@ class GlassdoorSite:
             cookies_btn = self.__driver.find_element(By.ID, "onetrust-accept-btn-handler")
             cookies_btn.click()
         except NoSuchElementException:
+            pass
+        except ElementNotInteractableException:
             pass
 
     def __load_more(self) -> bool:

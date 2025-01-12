@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import duckdb
 from duckdb import DuckDBPyConnection
 from pandas import DataFrame
@@ -23,9 +25,28 @@ class DuckDbStorage:
             ddb.register('dataframe', dataframe)
             return ddb.execute('INSERT INTO raw_glassdoor SELECT * FROM dataframe')
 
-    def create_tables(self) -> None:
+    def mark_active(self, job_ids: list[int], country: str, date: datetime):
         with self.__connect() as ddb:
-            ddb.execute('CREATE TABLE IF NOT EXISTS raw_glassdoor(id BIGINT, country VARCHAR, datetime TIMESTAMP, age VARCHAR, link VARCHAR, job_title VARCHAR, job_location VARCHAR, salary_range VARCHAR, salary_range_est_type VARCHAR, company_name VARCHAR, company_rating VARCHAR, job_description VARCHAR, job_description_html VARCHAR, salary_range_2 VARCHAR, salary_range_2_period VARCHAR, salary_median_est VARCHAR, salary_median_est_period VARCHAR, company_size VARCHAR, company_founded VARCHAR, employment_type VARCHAR, company_industry VARCHAR, company_sector VARCHAR, company_revenue VARCHAR, company_recommend_to_friend VARCHAR, company_approve_of_ceo VARCHAR, company_ceo_name VARCHAR, company_ceo_ratings DOUBLE, career_opportunities_rating VARCHAR, comp_and_benefits_rating VARCHAR, culture_and_values_rating VARCHAR, senior_management_rating VARCHAR, work_life_balance_rating VARCHAR, trust_reviews_html VARCHAR, benefit_rating VARCHAR, company_id INTEGER, company_link VARCHAR)')
+            dataframe = DataFrame(data={
+                'id': list(job_ids)
+                #'country': [country for _ in job_ids],
+                #'datetime': [date for _ in job_ids]
+            })
+            ddb.register('dataframe', dataframe)
+            sql = (f"INSERT INTO job_active_status (id, country, datetime) "
+                   f"SELECT id, '{country}' AS country, '{date}' AS datetime "
+                   f"FROM dataframe")
+            print(sql)
+            ddb.execute(sql)
+
+    def create_tables(self) -> None:
+        commands = [
+            'CREATE TABLE IF NOT EXISTS raw_glassdoor(id BIGINT, country VARCHAR, datetime TIMESTAMP, age VARCHAR, link VARCHAR, job_title VARCHAR, job_location VARCHAR, salary_range VARCHAR, salary_range_est_type VARCHAR, company_name VARCHAR, company_rating VARCHAR, job_description VARCHAR, job_description_html VARCHAR, salary_range_2 VARCHAR, salary_range_2_period VARCHAR, salary_median_est VARCHAR, salary_median_est_period VARCHAR, company_size VARCHAR, company_founded VARCHAR, employment_type VARCHAR, company_industry VARCHAR, company_sector VARCHAR, company_revenue VARCHAR, company_recommend_to_friend VARCHAR, company_approve_of_ceo VARCHAR, company_ceo_name VARCHAR, company_ceo_ratings DOUBLE, career_opportunities_rating VARCHAR, comp_and_benefits_rating VARCHAR, culture_and_values_rating VARCHAR, senior_management_rating VARCHAR, work_life_balance_rating VARCHAR, trust_reviews_html VARCHAR, benefit_rating VARCHAR, company_id INTEGER, company_link VARCHAR)',
+            'CREATE TABLE IF NOT EXISTS job_active_status(id BIGINT NOT NULL, country VARCHAR NOT NULL, datetime TIMESTAMP NOT NULL)'
+        ]
+        with self.__connect() as ddb:
+            for sql in commands:
+                ddb.execute(sql)
 
     def __connect(self) -> DuckDBPyConnection:
         return duckdb.connect(self.__path)

@@ -142,7 +142,7 @@ class GlassdoorJobPage:
             else:
                 print('.', end='')
             job_element.click()
-            time.sleep(0.5)
+            time.sleep(1)
             attempts += 1
 
         return GlassdoorJobPage.__check_tab_selected(job_element)
