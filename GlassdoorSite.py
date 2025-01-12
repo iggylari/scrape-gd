@@ -9,12 +9,12 @@ from GlassdoorJobPage import GlassdoorJobPage
 
 
 class GlassdoorSite:
-    def __init__(self, driver: webdriver.Remote, domain: str):
+    def __init__(self, driver: webdriver.Remote, domain: str, query: str):
         self.__driver = driver
-        self.__open_site(domain)
+        self.__open_site(domain, query)
 
-    def __open_site(self, domain: str) -> None:
-        search_url = f"https://{domain}/Job/data-engineer-jobs-SRCH_KO0,13.htm?sortBy=date_desc"
+    def __open_site(self, domain: str, query: str) -> None:
+        search_url = f"https://{domain}/Job/{query}?sortBy=date_desc"
         self.__driver.get(search_url)
 
     def parse_all_jobs(self, n_pages: int = 0) -> list[GlassdoorJobPage]:

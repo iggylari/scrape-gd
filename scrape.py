@@ -11,7 +11,7 @@ from GlassdoorSite import GlassdoorSite
 from DuckDbStorage import DuckDbStorage
 from ParquetStorage import ParquetStorage
 from SiteData import SiteData
-from constants import SITES, DB_PATH
+from constants import SITES, QUERIES, DB_PATH
 
 
 def main() -> int:
@@ -25,14 +25,15 @@ def main() -> int:
     sites = SITES if args.countries is None else [s for s in SITES if s[1] in args.countries]
 
     with keep.running():
-        return parse_sites(sites, args.pages)
+        return parse_sites(sites, QUERIES, args.pages)
 
 
-def parse_sites(sites: list[tuple[str, str]], n_pages: int = 0) -> int:
-    for domain, country in sites:
+def parse_sites(sites: list[tuple[str, str]], queries: list[str], n_pages: int = 0) -> int:
+    searches = [(s, c, q) for s, c in sites for q in queries]
+    for domain, country, query in searches:
         print(domain, country)
         driver = create_webdriver()
-        site = GlassdoorSite(driver, domain)
+        site = GlassdoorSite(driver, domain, query)
 
         storage = DuckDbStorage(DB_PATH)
         existing_ids = storage.get_not_empty_ids(country)
