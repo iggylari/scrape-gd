@@ -1,4 +1,5 @@
-import sys
+import logging
+import re
 import time
 from datetime import datetime
 
@@ -7,12 +8,14 @@ from selenium.common import NoSuchElementException, ElementClickInterceptedExcep
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 
+from SiteTools import SiteTools
 
-class GlassdoorJobPage:
+
+class GlassdoorJobPage(SiteTools):
     def __init__(self, driver: webdriver.Remote, job_element: WebElement):
-        self.__driver = driver
-        self.__job_element = job_element
-        self.job_id = int(self.__job_element.find_element(By.XPATH, './..').get_attribute("data-jobid"))
+        super().__init__(driver)
+        self._job_element = job_element
+        self.job_id = int(self._job_element.find_element(By.XPATH, './..').get_attribute("data-jobid"))
 
     def parse_job(self, country: str, date: datetime) -> dict:
         job_id = self.job_id
@@ -54,30 +57,48 @@ class GlassdoorJobPage:
             "benefit_rating": None,
             'company_id': None,
             'company_link': None,
+            'skills': None,
         }
 
-        job_element = self.__job_element
-        job_element.click()
+        self._close_popup()
+
+        job_element = self._job_element
+        try:
+            job_element.click()
+        except ElementClickInterceptedException:
+            logging.debug('Click intercepted, try close popup and open job')
+            self._close_popup()
+            job_element.click()
 
         try:
             job_record['age'] = job_element.find_element(By.CSS_SELECTOR, '[data-test="job-age"]').text
-        except:
-            print(f'Failed to parse vacation age for {job_id}')
-            pass
+        except NoSuchElementException:
+            logging.warning(f'Failed to parse vacation age for {job_id}')
 
         try:
             job_title = job_element.find_element(By.CSS_SELECTOR, '[data-test="job-title"]')
             job_record['link'] = job_title.get_attribute("href")
             job_record['job_title'] = job_title.text
         except NoSuchElementException:
-            print(f'Failed to link and title for {job_id}')
-            pass
+            logging.warning(f'Failed to parse link and title for {job_id}')
 
         try:
             job_record['job_location'] = job_element.find_element(By.CSS_SELECTOR, '[data-test="emp-location"]').text
         except NoSuchElementException:
-            print(f'Failed to parse job location for {job_id}')
-            pass
+            logging.info(f'Failed to parse job location for {job_id}')
+
+        try:
+            descr_snippet = job_element.find_element(By.CSS_SELECTOR, '[data-test="descSnippet"]')
+            descr_snippet_children = descr_snippet.find_elements(By.TAG_NAME, 'div')
+            if len(descr_snippet_children) >= 2:
+                skills_html = descr_snippet_children[1].get_attribute('innerHTML')
+                skills_match = re.findall('<b>.*</b>\\s*(.+)', skills_html)
+                if skills_match:
+                    job_record['skills'] = [skill.strip() for skill in skills_match[0].split(',')]
+                else:
+                    logging.warning("Skills in job description snippet don't match")
+        except NoSuchElementException:
+            logging.warning(f'Cannot find job description snippet for {job_id}')
 
         try:
             salary_range = job_element.find_element(By.CSS_SELECTOR, '[data-test="detailSalary"]')
@@ -87,8 +108,7 @@ class GlassdoorJobPage:
                 'span[starts-with(@class,"JobCard_salaryEstimateType")]'
             ).text
         except NoSuchElementException:
-            print(f'Failed to parse salary for {job_id}')
-            pass
+            logging.info(f'Failed to parse salary for {job_id}')
 
         try:
             job_record['company_name'] = job_element.find_element(
@@ -103,40 +123,50 @@ class GlassdoorJobPage:
             except NoSuchElementException:
                 pass
         except NoSuchElementException:
-            print(f'Failed to parse company for {job_id}')
+            logging.warning(f'Failed to parse company for {job_id}')
 
-        if not self.__ensure_tab_selected(job_element):
-            print('Failed, will skip details')
+        if not self._ensure_tab_selected(job_element):
+            logging.info('Failed, will skip details')
             return job_record
 
         attempts = 0
-        while not self.__click_show_more() and attempts <= 10:
+        while not self._click_show_more() and attempts <= 10:
             time.sleep(1)
             attempts += 1
 
-        details = JobDetails(self.__driver, job_id)
+        details = JobDetails(self._driver, job_id)
         try:
             details.parse_details(job_record)
         except NoDetailsTabException:
-            print(f'Job description for {job_id} not loaded')
+            logging.error(f'Job description for {job_id} not loaded')
 
         return job_record
 
-    def __click_show_more(self) -> bool:
+    def _click_show_more(self) -> bool:
+        self._close_popup()
         try:
-            btn = self.__driver.find_element(By.XPATH, '//button[starts-with(@class,"JobDetails_showMore")]')
-            btn.click()
-            return True
+            btn = self._driver.find_element(By.XPATH, '//button[starts-with(@class,"ShowMoreCTA")]')
+            expanded_state = btn.get_attribute('aria-expanded')
+            logging.debug(f"Show more button state {expanded_state}")
+            if expanded_state == 'false':
+                btn.click()
+                return False
+            elif expanded_state == 'true':
+                return True
+            else:
+                raise ShowMoreUnexpectedState(expanded_state)
         except NoSuchElementException:
+            logging.debug('No show more button')
             return False
         except ElementClickInterceptedException:
-            #input('ElementClickInterceptedException, check page')
-            return True
+            logging.debug('Click intercepted, try close popup')
+            self._close_popup()
+            return False
 
     @staticmethod
-    def __ensure_tab_selected(job_element: WebElement) -> bool:
+    def _ensure_tab_selected(job_element: WebElement) -> bool:
         attempts = 0
-        while not GlassdoorJobPage.__check_tab_selected(job_element) and attempts < 8:
+        while not GlassdoorJobPage._check_tab_selected(job_element) and attempts < 8:
             if attempts == 0:
                 print('Job element not activated - try more .', end='')
             else:
@@ -145,22 +175,22 @@ class GlassdoorJobPage:
             time.sleep(1)
             attempts += 1
 
-        return GlassdoorJobPage.__check_tab_selected(job_element)
+        return GlassdoorJobPage._check_tab_selected(job_element)
 
     @staticmethod
-    def __check_tab_selected(job_element: WebElement) -> bool:
+    def _check_tab_selected(job_element: WebElement) -> bool:
         return job_element.get_attribute('data-selected') == 'true'
 
 
 class JobDetails:
     def __init__(self, driver: webdriver.Remote, job_id: int):
-        self.__driver = driver
-        self.__job_id = job_id
-        self.__init_tab()
+        self._driver = driver
+        self._job_id = job_id
+        self._init_tab()
 
-    def __init_tab(self):
+    def _init_tab(self):
         try:
-            job_details_tab = self.__driver.find_element(
+            job_details_tab = self._driver.find_element(
                 By.XPATH,
                 './/div[starts-with(@class,"JobDetails_jobDetailsContainer")]'
             )
@@ -168,17 +198,17 @@ class JobDetails:
             raise NoDetailsTabException()
 
         try:
-            job_details_tab.find_element(By.ID, f'jd-job-title-{self.__job_id}')
+            job_details_tab.find_element(By.ID, f'jd-job-title-{self._job_id}')
         except NoSuchElementException:
-            raise JobTitleNotFoundException(self.__job_id)
+            raise JobTitleNotFoundException(self._job_id)
 
-        self.__tab = job_details_tab
+        self._tab = job_details_tab
 
     def parse_details(self, job_record: dict) -> None:
-        job_id = self.__job_id
+        job_id = self._job_id
 
         try:
-            employer_profile = self.__tab.find_element(
+            employer_profile = self._tab.find_element(
                 By.XPATH,
                 './/a[starts-with(@class,"EmployerProfile_profileContainer_")]'
             )
@@ -188,18 +218,25 @@ class JobDetails:
             pass
 
         try:
-            job_description = self.__tab.find_element(
+            job_description = self._tab.find_element(
                 By.XPATH,
                 './/div[starts-with(@class,"JobDetails_jobDescription_")]'
             )
             job_record['job_description'] = job_description.text
             job_record['job_description_html'] = job_description.get_attribute('innerHTML')
+            length1 = len(job_record['job_description'])
+            if length1 < 1000:
+                time.sleep(1)
+                job_record['job_description'] = job_description.text
+                job_record['job_description_html'] = job_description.get_attribute('innerHTML')
+                length2 = len(job_record['job_description'])
+                if length2 > length1:
+                    logging.warning(f'More description after retry {job_id}')
         except NoSuchElementException:
-            print(f'Failed to parse job description for {job_id}')
-            pass
+            logging.warning(f'Failed to parse job description for {job_id}')
 
         try:
-            salary_estimate = self.__tab.find_element(
+            salary_estimate = self._tab.find_element(
                 By.XPATH,
                 './/div[starts-with(@class,"SalaryEstimate_salaryEstimateContainer_")]'
             )
@@ -214,8 +251,7 @@ class JobDetails:
                     'span[starts-with(@class,"SalaryEstimate_payPeriod")]'
                 ).text
             except NoSuchElementException:
-                print(f'Failed to parse salary range 2 from job details for {job_id}')
-                pass
+                logging.info(f'Failed to parse salary range 2 from job details for {job_id}')
             try:
                 salary_estimate_number = salary_estimate.find_element(
                     By.XPATH,
@@ -230,13 +266,11 @@ class JobDetails:
                     'div[starts-with(@class,"SalaryEstimate_payPeriod")]'
                 ).text
             except NoSuchElementException:
-                print(f'Failed to parse salary median for {job_id}')
-                pass
+                logging.info(f'Failed to parse salary median for {job_id}')
         except NoSuchElementException:
-            print(f'Failed to parse salary 2 for {job_id}')
-            pass
+            logging.info(f'Failed to parse salary 2 for {job_id}')
 
-        company_overview_values = self.__tab.find_elements(
+        company_overview_values = self._tab.find_elements(
             By.XPATH,
             './/div[starts-with(@class,"JobDetails_overviewItemValue")]'
         )
@@ -250,7 +284,7 @@ class JobDetails:
                 "company_revenue": company_overview_values[5].text
             })
 
-        company_recommend_donuts = self.__tab.find_elements(
+        company_recommend_donuts = self._tab.find_elements(
             By.XPATH,
             './/ul[starts-with(@class,"JobDetails_employerStatsDonuts")]//div[starts-with(@class,"JobDetails_donutWrapper")]'
         )
@@ -259,7 +293,7 @@ class JobDetails:
             job_record["company_approve_of_ceo"] = company_recommend_donuts[1].text
 
         try:
-            ceo_wrapper = self.__tab.find_element(
+            ceo_wrapper = self._tab.find_element(
                 By.XPATH,
                 './/div[starts-with(@class,"JobDetails_ceoTextWrapper")]'
             )
@@ -273,13 +307,12 @@ class JobDetails:
                 try:
                     job_record["company_ceo_ratings"] = int(''.join([c for c in ceo_ratings.split(' ')[0] if c.isdigit()]))
                 except ValueError:
-                    print(f"Error when parsing CEO ratings: '{ceo_ratings}'", file=sys.stderr)
+                    logging.error(f"Error when parsing CEO ratings: '{ceo_ratings}'")
 
         except NoSuchElementException:
-            print(f'Failed to parse CEO rating for {job_id}')
-            pass
+            logging.info(f'Failed to parse CEO rating for {job_id}')
 
-        company_ratings = self.__tab.find_elements(
+        company_ratings = self._tab.find_elements(
             By.XPATH,
             './/div[starts-with(@class,"JobDetails_ratingScore")]'
         )
@@ -291,20 +324,20 @@ class JobDetails:
             job_record["work_life_balance_rating"] = company_ratings[4].text
 
         try:
-            job_record["trust_reviews_html"] = self.__tab.find_element(
+            job_record["trust_reviews_html"] = self._tab.find_element(
                 By.XPATH,
                 './/div[starts-with(@class,"JobDetails_reviewSection")]'
             ).get_attribute('innerHTML')
         except NoSuchElementException:
-            print(f'Failed to parse company trust reviews for {job_id}')
+            logging.info(f'Failed to parse company trust reviews for {job_id}')
 
         try:
-            job_record["benefit_rating"] = self.__tab.find_element(
+            job_record["benefit_rating"] = self._tab.find_element(
                 By.XPATH,
                 './/div[starts-with(@class,"CompanyBenefitReview_benefitRatingSection")]//div[@id="rating-headline"]'
             ).text
         except NoSuchElementException:
-            print(f'Failed to parse company benefit rating for {job_id}')
+            logging.info(f'Failed to parse company benefit rating for {job_id}')
 
 
 class NoDetailsTabException(Exception):
@@ -314,4 +347,10 @@ class NoDetailsTabException(Exception):
 class JobTitleNotFoundException(Exception):
     def __init__(self, job_id):
         message = f'No element with id jd-job-title-{job_id} found. Cannot verify that the description page corresponds to job tab'
+        super().__init__(message)
+
+
+class ShowMoreUnexpectedState(Exception):
+    def __init__(self, state):
+        message = f'Show More button in unexpected state: {state}'
         super().__init__(message)

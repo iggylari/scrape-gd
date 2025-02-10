@@ -1,4 +1,6 @@
 import argparse
+import logging
+import random
 import sys
 
 import selenium.webdriver as webdriver
@@ -20,8 +22,11 @@ def main() -> int:
         description='Acquires job information from Glassdoor search pages')
     parser.add_argument('-c', '--countries', nargs='+', choices=[c for url, c in SITES])
     parser.add_argument('-p', '--pages', default=0, type=int)
+    parser.add_argument('-d', '--debug', default=False, type=bool)
     args = parser.parse_args()
 
+    log_level = logging.DEBUG if args.debug else logging.WARNING
+    logging.basicConfig(level=log_level)
     sites = SITES if args.countries is None else [s for s in SITES if s[1] in args.countries]
 
     with keep.running():
@@ -30,6 +35,7 @@ def main() -> int:
 
 def parse_sites(sites: list[tuple[str, str]], queries: list[str], n_pages: int = 0) -> int:
     searches = [(s, c, q) for s, c in sites for q in queries]
+    random.shuffle(searches)
     for domain, country, query in searches:
         print(domain, country)
         driver = create_webdriver()
@@ -42,22 +48,25 @@ def parse_sites(sites: list[tuple[str, str]], queries: list[str], n_pages: int =
         site_data = parse_site(site, country, existing_ids, date, n_pages)
         df = pd.DataFrame(site_data.new_jobs)
         row_count = len(df.index)
-        print(f"{row_count} job records")
-        print(df.count())
+        print(f"{row_count} new job records")
 
         if row_count:
             try:
                 storage.save(df)
                 storage.mark_active(site_data.active_job_ids, country, date)
             except Exception as ex:
-                print(ex, file=sys.stderr)
+                logging.error(ex)
 
             parquet_storage = ParquetStorage(country, date)
             parquet_storage.save(df)
 
-        if site_data.error:
-            print(site_data.error, file=sys.stderr)
         driver.quit()
+
+        if site_data.error:
+            if site_data.error is KeyboardInterrupt:
+                raise site_data.error
+
+            logging.error(site_data.error)
 
     return 0
 
@@ -70,7 +79,7 @@ def create_webdriver() -> webdriver.Remote:
 def parse_site(site: GlassdoorSite, country: str, existing_ids: set[int], date: datetime, n_pages: int = 0) -> SiteData:
     job_pages = site.parse_all_jobs(n_pages)
     if not job_pages:
-        input("Check for captcha and resume")
+        input(" --- Check for captcha and resume:")
         job_pages = site.parse_all_jobs(n_pages)
 
     processed_ids = set()   # To avoid duplicates
