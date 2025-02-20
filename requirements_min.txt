@@ -4,3 +4,4 @@ tqdm
 wakepy
 pandas
 fastparquet==2024.11.0
+openai
