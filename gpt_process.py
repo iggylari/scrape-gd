@@ -1,67 +1,76 @@
+import argparse
+import logging
+import os
 import sys
+from datetime import datetime
+from json import JSONDecodeError
 
 from pandas import DataFrame
-import json
+from tqdm import tqdm
 
 import constants
 from DuckDbStorage import DuckDbStorage
-from gpt import GptClient, GptColumns, GeneralColumns
+from gpt import GptClient, GeneralColumns, JobProcessor
+
+BATCH_SIZE = 50
 
 
 def main() -> int:
-    client = GptClient()
+    parser = argparse.ArgumentParser(
+        prog='Glassdoor scraper',
+        description='Process job descriptions with GPT to obtain and systematize various job characteristics'
+    )
+    parser.add_argument('-n', default=10, type=int)
+    parser.add_argument('-c', '--countries', nargs='+', choices=[c for _, c in constants.SITES])
+    args = parser.parse_args()
+
+    processor = JobProcessor(GptClient())
     storage = DuckDbStorage(constants.DB_PATH)
-    jobs_df = storage.get_not_gpt_processed_jobs(10)
-    gpt_processed_rows = []
-    for row in jobs_df.iterrows():
-        id_ = row[1]['id']
-        job_text = 'Job title: ' + row[1]['job_title'] + '\n' + row[1]['job_description']
-        parsed_description = json.loads(client.analyze_job_description(job_text))
-        out_descr = {
-            GeneralColumns.ID.value: id_,
-            GeneralColumns.COUNTRY.value: row[1][GeneralColumns.COUNTRY],
-            GeneralColumns.OTHER.value: None
-        }
-        for col, val in parsed_description.items():
-            if col in GptColumns:
-                if col == GptColumns.SALARY:
-                    out_descr[col] = ensure_salary_value(val)
-                else:
-                    out_descr[col] = val
-            else:
-                if out_descr[GeneralColumns.OTHER.value] is None:
-                    out_descr[GeneralColumns.OTHER.value] = {}
-                out_descr[GeneralColumns.OTHER.value][col] = val
-                print(f"Unknown column {col} for {id_}")
+    for start in range(0, args.n, BATCH_SIZE):
+        count = min(BATCH_SIZE, args.n - start)
+        jobs_df = storage.get_not_gpt_processed_jobs(count, args.countries or None)
+        if jobs_df.empty:
+            logging.info("No more jobs to process")
+            break
 
-        for col in GptColumns:
-            if not col in out_descr:
-                print(f"{col} not found in GPT answer for {id_}")
-
-        if parsed_description[GptColumns.LANGUAGE.value].casefold() != 'English'.casefold():
-            out_descr[GeneralColumns.TRANSLATION.value] = client.translate(job_text)
-        print(parsed_description)
-        gpt_processed_rows.append(out_descr)
-
-    processed_df = DataFrame(gpt_processed_rows)
-    print(processed_df)
-    storage.save_gpt_processed(processed_df)
+        gpt_processed_rows = []
+        try:
+            jobs_data = zip(jobs_df['id'], jobs_df[GeneralColumns.COUNTRY], jobs_df['job_title'], jobs_df['job_description'])
+            for id_, country, title, descr in tqdm(jobs_data, nrows=len(jobs_df.index), desc="Progress"):
+                out_descr = processor.gpt_process(id_, country, title, descr)
+                gpt_processed_rows.append(out_descr)
+        except JSONDecodeError as ex:
+            logging.error(ex)
+            print(ex.doc, file=open('parse_error.json', 'w'))
+            raise
+        finally:
+            if gpt_processed_rows:
+                processed_df = DataFrame(gpt_processed_rows)
+                print(len(processed_df), 'jobs processed')
+                save(storage, processed_df)
 
     return 0
 
 
-def ensure_salary_value(val):
-    if type(val) is dict:
-        if val:
-            return json.dumps(val)
-        else:
-            return None
-    elif val is None:
-        return val
-    else:
-        print(type(val))
-        print(val)
-        return json.dumps({'value': val})
+def save(storage: DuckDbStorage, df: DataFrame) -> None:
+    """Save DataFrame to DuckDb Storage. If failed, will try to save to Parquet file, otherwise desperately try to
+    pickle."""
+    try:
+        storage.save_gpt_processed(df)
+    except:
+        date_str = datetime.now().strftime('%y-%m-%d %H%M%S')
+        parquet_dir = 'parquet'
+        os.makedirs(parquet_dir, exist_ok=True)
+        filename = f'{parquet_dir}/gpt_{date_str}.parquet'
+        try:
+            df.to_parquet(filename, compression='gzip')
+        except:
+            pickle_dir = 'pickle'
+            os.makedirs(pickle_dir, exist_ok=True)
+            filename = f'{pickle_dir}/gpt_{date_str}.pkl'
+            df.to_pickle(filename)
+        logging.error(f"Failed to save to DuckDB. Saved to {filename}")
+        raise
 
 
 if __name__ == '__main__':

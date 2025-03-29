@@ -36,12 +36,14 @@ class DuckDbStorage:
                    f"FROM dataframe")
             ddb.execute(sql)
 
-    def get_not_gpt_processed_jobs(self, count: int) -> DataFrame:
+    def get_not_gpt_processed_jobs(self, count: int, countries: list[str] = None) -> DataFrame:
+        country_filter = f"AND rg.country IN ({', '.join([f"'{c}'" for c in countries])})" if countries else ''
         with self._connect(True) as ddb:
             sql = f"""SELECT id, country, job_title, job_description 
     FROM raw_glassdoor rg 
     WHERE NOT EXISTS (FROM gpt_processed gp WHERE gp.id=rg.id AND gp.country=rg.country)
-        AND job_description IS NOT NULL 
+        AND job_description IS NOT NULL
+        {country_filter} 
     ORDER BY datetime DESC 
     LIMIT {count}"""
             ddb.execute(sql)
@@ -111,7 +113,8 @@ class DuckDbStorage:
     languages_required VARCHAR[],
     grade VARCHAR,
     work_model VARCHAR,
-    translation VARCHAR)"""
+    translation VARCHAR,
+    work_permit_required BOOLEAN)"""
         ]
         with self._connect() as ddb:
             for sql in commands:

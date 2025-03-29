@@ -2,6 +2,7 @@ import argparse
 import logging
 import random
 import sys
+import time
 
 import selenium.webdriver as webdriver
 import pandas as pd
@@ -20,7 +21,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog='Glassdoor scraper',
         description='Acquires job information from Glassdoor search pages')
-    parser.add_argument('-c', '--countries', nargs='+', choices=[c for url, c in SITES])
+    parser.add_argument('-c', '--countries', nargs='+', choices=[c for _, c in SITES])
     parser.add_argument('-p', '--pages', default=0, type=int)
     parser.add_argument('-d', '--debug', default=False, type=bool)
     args = parser.parse_args()
@@ -77,7 +78,12 @@ def create_webdriver() -> webdriver.Remote:
 
 
 def parse_site(site: GlassdoorSite, country: str, existing_ids: set[int], date: datetime, n_pages: int = 0) -> SiteData:
-    job_pages = site.parse_all_jobs(n_pages)
+    attempts = 0
+    while not (job_pages := site.parse_all_jobs(n_pages)) and attempts <= 10:
+        print('.', end='')
+        attempts += 1
+        time.sleep(attempts)
+
     if not job_pages:
         input(" --- Check for captcha and resume:")
         job_pages = site.parse_all_jobs(n_pages)

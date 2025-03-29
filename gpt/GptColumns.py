@@ -14,3 +14,4 @@ class GptColumns(StrEnum):
     LANGUAGES_REQUIRED = auto()
     GRADE = auto()
     WORK_MODEL = auto()
+    WORK_PERMIT_REQUIRED = auto()
