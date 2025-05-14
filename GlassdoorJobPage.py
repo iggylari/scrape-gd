@@ -145,7 +145,7 @@ class GlassdoorJobPage(SiteTools):
     def _click_show_more(self) -> bool:
         self._close_popup()
         try:
-            btn = self._driver.find_element(By.XPATH, '//button[starts-with(@class,"ShowMoreCTA")]')
+            btn = self._driver.find_element(By.XPATH, "//button[@data-test='show-more-cta']")
             expanded_state = btn.get_attribute('aria-expanded')
             logging.debug(f"Show more button state {expanded_state}")
             if expanded_state == 'false':

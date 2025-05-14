@@ -4,8 +4,9 @@ import time
 import selenium.webdriver as webdriver
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, \
-    ElementClickInterceptedException, ElementNotInteractableException
+    ElementClickInterceptedException, ElementNotInteractableException, InvalidCookieDomainException
 
+import utils
 from GlassdoorJobPage import GlassdoorJobPage
 from SiteTools import SiteTools
 
@@ -13,10 +14,12 @@ from SiteTools import SiteTools
 class GlassdoorSite(SiteTools):
     def __init__(self, driver: webdriver.Remote, domain: str, query: str):
         super().__init__(driver)
+        self._domain = domain
         self._open_site(domain, query)
 
     def _open_site(self, domain: str, query: str) -> None:
         search_url = f"https://{domain}/Job/{query}?sortBy=date_desc"
+        self._load_cookies(utils.load_cookies(domain))
         self._driver.get(search_url)
 
     def parse_all_jobs(self, n_pages: int = 0) -> list[GlassdoorJobPage]:
@@ -30,6 +33,7 @@ class GlassdoorSite(SiteTools):
             page_index += 1
 
         self._close_cookies_popup()
+        utils.save_cookies(self._driver.get_cookies(), self._domain)
 
         all_jobs = self._driver.find_elements(By.CSS_SELECTOR, '[data-test="job-card-wrapper"]')
         return [GlassdoorJobPage(self._driver, job) for job in all_jobs]
@@ -67,3 +71,20 @@ class GlassdoorSite(SiteTools):
             attempts += 1
 
         return False
+
+    def _load_cookies(self, cookies):
+        # Enables network tracking so we may use Network.setCookie method
+        self._driver.execute_cdp_cmd('Network.enable', {})
+
+        # Iterate through pickle dict and add all the cookies
+        for cookie in cookies:
+            # Fix issue Chrome exports 'expiry' key but expects 'expire' on import
+            if 'expiry' in cookie:
+                cookie['expires'] = cookie['expiry']
+                del cookie['expiry']
+
+            # Set the actual cookie
+            self._driver.execute_cdp_cmd('Network.setCookie', cookie)
+
+        # Disable network tracking
+        self._driver.execute_cdp_cmd('Network.disable', {})

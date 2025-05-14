@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 from datetime import datetime
+
+import utils
 from json import JSONDecodeError
 
 from pandas import DataFrame
@@ -21,8 +23,10 @@ def main() -> int:
         description='Process job descriptions with GPT to obtain and systematize various job characteristics'
     )
     parser.add_argument('-n', default=10, type=int)
-    parser.add_argument('-c', '--countries', nargs='+', choices=[c for _, c in constants.SITES])
+    parser.add_argument('-c', '--countries', nargs='+', choices=[c for _, c, _ in constants.SITES])
     args = parser.parse_args()
+
+    utils.prepare_dirs()
 
     processor = JobProcessor(GptClient())
     storage = DuckDbStorage(constants.DB_PATH)
@@ -37,12 +41,14 @@ def main() -> int:
         try:
             jobs_data = zip(jobs_df['id'], jobs_df[GeneralColumns.COUNTRY], jobs_df['job_title'], jobs_df['job_description'])
             for id_, country, title, descr in tqdm(jobs_data, nrows=len(jobs_df.index), desc="Progress"):
-                out_descr = processor.gpt_process(id_, country, title, descr)
-                gpt_processed_rows.append(out_descr)
-        except JSONDecodeError as ex:
-            logging.error(ex)
-            print(ex.doc, file=open('parse_error.json', 'w'))
-            raise
+                try:
+                    out_descr = processor.gpt_process(id_, country, title, descr)
+                    gpt_processed_rows.append(out_descr)
+                except JSONDecodeError as ex:
+                    logging.error(ex)
+                    date_str = datetime.now().strftime('%y-%m-%d %H%M%S')
+                    filename = f'{utils.RUNTIME_DIR}/parse_error_{date_str}.json'
+                    print(ex.doc, file=open(filename, 'w'))
         finally:
             if gpt_processed_rows:
                 processed_df = DataFrame(gpt_processed_rows)
@@ -59,15 +65,11 @@ def save(storage: DuckDbStorage, df: DataFrame) -> None:
         storage.save_gpt_processed(df)
     except:
         date_str = datetime.now().strftime('%y-%m-%d %H%M%S')
-        parquet_dir = 'parquet'
-        os.makedirs(parquet_dir, exist_ok=True)
-        filename = f'{parquet_dir}/gpt_{date_str}.parquet'
+        filename = f'{utils.PARQUET_DIR}/gpt_{date_str}.parquet'
         try:
             df.to_parquet(filename, compression='gzip')
         except:
-            pickle_dir = 'pickle'
-            os.makedirs(pickle_dir, exist_ok=True)
-            filename = f'{pickle_dir}/gpt_{date_str}.pkl'
+            filename = f'{utils.PICKLE_DIR}/gpt_{date_str}.pkl'
             df.to_pickle(filename)
         logging.error(f"Failed to save to DuckDB. Saved to {filename}")
         raise

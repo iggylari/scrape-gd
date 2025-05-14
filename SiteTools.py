@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 
 
 class SiteTools:
-    def __init__(self, driver: webdriver.Remote):
+    def __init__(self, driver: webdriver.Chrome):
         self._driver = driver
 
     def _close_popup(self) -> bool:

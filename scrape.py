@@ -10,32 +10,34 @@ from tqdm import tqdm
 from datetime import datetime
 from wakepy import keep
 
+import utils
 from GlassdoorSite import GlassdoorSite
 from DuckDbStorage import DuckDbStorage
 from ParquetStorage import ParquetStorage
 from SiteData import SiteData
-from constants import SITES, QUERIES, DB_PATH
+from constants import SITES, DB_PATH
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog='Glassdoor scraper',
         description='Acquires job information from Glassdoor search pages')
-    parser.add_argument('-c', '--countries', nargs='+', choices=[c for _, c in SITES])
+    parser.add_argument('-c', '--countries', nargs='+', choices=[c for _, c, _ in SITES])
     parser.add_argument('-p', '--pages', default=0, type=int)
     parser.add_argument('-d', '--debug', default=False, type=bool)
     args = parser.parse_args()
 
+    utils.prepare_dirs()
     log_level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(level=log_level)
     sites = SITES if args.countries is None else [s for s in SITES if s[1] in args.countries]
 
     with keep.running():
-        return parse_sites(sites, QUERIES, args.pages)
+        return parse_sites(sites, args.pages)
 
 
-def parse_sites(sites: list[tuple[str, str]], queries: list[str], n_pages: int = 0) -> int:
-    searches = [(s, c, q) for s, c in sites for q in queries]
+def parse_sites(sites: list[tuple[str, str, list[str]]], n_pages: int = 0) -> int:
+    searches = [(s, c, q) for s, c, queries in sites for q in queries]
     random.shuffle(searches)
     for domain, country, query in searches:
         print(domain, country)
@@ -57,9 +59,8 @@ def parse_sites(sites: list[tuple[str, str]], queries: list[str], n_pages: int =
                 storage.mark_active(site_data.active_job_ids, country, date)
             except Exception as ex:
                 logging.error(ex)
-
-            parquet_storage = ParquetStorage(country, date)
-            parquet_storage.save(df)
+                parquet_storage = ParquetStorage(country, date)
+                parquet_storage.save(df)
 
         driver.quit()
 
